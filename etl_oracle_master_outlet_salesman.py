@@ -94,7 +94,7 @@ def run_job_outlet_salesman(oracle_url, oracle_user, oracle_password):
             JOIN {schema}.FSLS fs ON f.SLSNO = fs.SLSNO AND fs.FLAG_NONAKTIF IS NULL
             LEFT JOIN {schema}.FTABLE74 f2 ON f.SLSNO = f2.SLSNO
             JOIN {schema}.FTABLE74_D f3 ON f2.EMPNO = f3.EMPNO
-            JOIN {schema}.FCUSTMST f4 ON f.CUSTNO = f4.CUSTNO AND f4.TYPEOUT IN ('105','108','109','110','114','115','116','120','122','123','124','126','127','150','159','160','160','173','701','702','703') 
+            JOIN {schema}.FCUSTMST f4 ON f.CUSTNO = f4.CUSTNO AND f4.TYPEOUT IN ('105','108','109','110','114','115','116','120','122','123','124','126','127','150','159','160','160','173','180','701','702','703') 
             UNION
             SELECT DISTINCT (SELECT MEMOSTRING FROM {schema}.FMEMO WHERE memonama = 'KODEDIST') dist_id, f.CUSTNO, f2.EMPNO, 
                             f.SLSNO, fs.SLSNAME, fs.DATA04 SLSFC, f3.DIVISI_ID
@@ -107,7 +107,7 @@ def run_job_outlet_salesman(oracle_url, oracle_user, oracle_password):
                 SELECT DISTINCT f2.GROUPPAYER
                 FROM {schema}.FCUSTMST f
                 JOIN {schema}.FTABLE48 f2 ON f.CUSTNO = f2.CUSTNO
-                WHERE f.TYPEOUT IN ('105','108','109','110','114','115','116','120','122','123','124','126','127','150','159','160','160','173','701','702','703') 
+                WHERE f.TYPEOUT IN ('105','108','109','110','114','115','116','120','122','123','124','126','127','150','159','160','160','173','180','701','702','703') 
             )
             ) temp_outlet_salesman
             """

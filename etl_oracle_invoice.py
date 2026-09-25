@@ -129,7 +129,7 @@ def run_job_outlet(oracle_url, oracle_user, oracle_password):
             FROM {schema}.fjual_h a LEFT JOIN {schema}.forder_online_h b ON a.data8 = b.reffno
                 LEFT JOIN {schema}.forder_online_inv c
                 ON b.orderno = c.orderno AND a.invno = c.invno
-                JOIN {schema}.FCUSTMST f ON a.CUSTNO = f.CUSTNO AND f.TYPEOUT IN ('105','109','110','114','115','116','122','123','126','127','159','160','173','108','124','150','160','701','702','703','122')
+                JOIN {schema}.FCUSTMST f ON a.CUSTNO = f.CUSTNO AND f.TYPEOUT IN ('105','109','110','114','115','116','122','123','126','127','159','160','173','180','108','124','150','160','701','702','703','122')
             WHERE a.transtype = 'F'
                 AND a.INVDATE >= (SELECT MIN(CDATE) min_date_13w FROM(
                                 SELECT f.CDATE, DENSE_RANK() OVER(ORDER BY tahun DESC, weekno desc) rownumber FROM {schema}.FCYCLE3 f WHERE trunc(CDATE) <= (SELECT trunc(CURRENT_DATE) FROM DUAL)
