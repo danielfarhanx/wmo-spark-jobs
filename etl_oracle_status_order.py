@@ -35,6 +35,9 @@ MYO_DB_PROPERTIES = {
     "driver": "org.postgresql.Driver"
 }
 
+# Optional 9th arg: target PostgreSQL schema. Defaults to "myo" when omitted.
+PG_SCHEMA = sys.argv[9] if len(sys.argv) > 9 else "myo"
+
 def run_job_status_order(oracle_url, oracle_user, oracle_password):
     ORACLE_JDBC_URL = "jdbc:oracle:thin:@//"+oracle_url
     ORACLE_DB_PROPERTIES = {
@@ -73,10 +76,10 @@ def run_job_status_order(oracle_url, oracle_user, oracle_password):
             )
             logger.info(f"Loaded data from schema {schema}")
 
-            logger.info("Reading PostgreSQL table myo.t_order_h")
+            logger.info(f"Reading PostgreSQL table {PG_SCHEMA}.t_order_h")
             df_pg_myo_order_h = spark.read.jdbc(
                 url=MYO_JDBC_URL,
-                table="myo.t_order_h",
+                table=f"{PG_SCHEMA}.t_order_h",
                 properties=MYO_DB_PROPERTIES
             )
 
@@ -109,8 +112,8 @@ def run_job_status_order(oracle_url, oracle_user, oracle_password):
             )
             cur = conn_pg.cursor()
             for row in df_joined.collect():
-                cur.execute("""
-                UPDATE myo.t_order_h
+                cur.execute(f"""
+                UPDATE {PG_SCHEMA}.t_order_h
                     SET status = %s,
                         modified_on = %s, 
                         modified_by = %s

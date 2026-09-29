@@ -61,6 +61,9 @@ MYO_DB_PROPERTIES = {
     "driver": "org.postgresql.Driver"
 }
 
+# Optional 9th arg: target PostgreSQL schema. Defaults to "myo" when omitted.
+PG_SCHEMA = sys.argv[9] if len(sys.argv) > 9 else "myo"
+
 def run_job_outlet(oracle_url, oracle_user, oracle_password):
     """
     Main function to synchronize outlet master data from Oracle to PostgreSQL.
@@ -115,7 +118,7 @@ def run_job_outlet(oracle_url, oracle_user, oracle_password):
                     WHEN f2.groupdivisi='M3' THEN f5.nobarcode3 
                     WHEN f2.groupdivisi = 'ALL' THEN f5.nobarcode1 
                 END nobarcode,
-                f2.GROUPPAYER, f.GDISC, f.GRUPOUT, f.GHARGA, f.DATA15 SPECIFICOUT
+                f2.GROUPPAYER, f.GDISC, f.GRUPOUT, f.GHARGA, f.DATA15 SPECIFICOUT, TRIM(f.CLASS) CLASS
             FROM {schema}.FCUSTMST f 
             JOIN {schema}.FTABLE48 f2 ON f.CUSTNO = f2.CUSTNO
             LEFT JOIN (
@@ -147,7 +150,7 @@ def run_job_outlet(oracle_url, oracle_user, oracle_password):
                     WHEN f2.groupdivisi='M3' THEN f5.nobarcode3 
                     WHEN f2.groupdivisi = 'ALL' THEN f5.nobarcode1 
                 END nobarcode,
-                f2.GROUPPAYER, f.GDISC, f.GRUPOUT, f.GHARGA, f.DATA15 SPECIFICOUT
+                f2.GROUPPAYER, f.GDISC, f.GRUPOUT, f.GHARGA, f.DATA15 SPECIFICOUT, TRIM(f.CLASS) CLASS
             FROM {schema}.FCUSTMST f 
             JOIN {schema}.FTABLE48 f2 ON f.CUSTNO = f2.CUSTNO
             LEFT JOIN (
@@ -179,6 +182,7 @@ def run_job_outlet(oracle_url, oracle_user, oracle_password):
                 col("nobarcode").alias("barcode"), col("GROUPPAYER").alias("group_payer_id"),
                 col("GDISC").alias("group_disc_id"), col("GRUPOUT").alias("group_outlet_id"),
                 col("GHARGA").alias("group_harga_id"), col("SPECIFICOUT").alias("specific_outlet_id"),
+                col("CLASS").alias("classification_id"),
                 F.current_timestamp().alias("created_on"), F.lit("SYS").alias("created_by"),
                 F.lit(None).alias("modified_on"), F.lit(None).alias("modified_by")
             )
@@ -188,7 +192,7 @@ def run_job_outlet(oracle_url, oracle_user, oracle_password):
             # --- 4.2 Read from PostgreSQL Target ---
             logger.info("Reading outlet master data from PostgreSQL target table.")
             source_dist_id = df_orc_outlet.select("dist_id").distinct().collect()[0]["dist_id"]
-            full_sql_query = f"(SELECT * FROM myo.m_outlet WHERE dist_id = {source_dist_id}) AS filtered_outlet"
+            full_sql_query = f"(SELECT * FROM {PG_SCHEMA}.m_outlet WHERE dist_id = {source_dist_id}) AS filtered_outlet"
             df_pg_myo_outlet = spark.read.jdbc(url=MYO_JDBC_URL, table=full_sql_query, properties=MYO_DB_PROPERTIES)
             logger.info(f"Successfully read {df_pg_myo_outlet.count()} rows from PostgreSQL target.")
 
@@ -212,7 +216,8 @@ def run_job_outlet(oracle_url, oracle_user, oracle_password):
                     ~(col("orc.group_disc_id").eqNullSafe(col("pg.group_disc_id"))) |
                     ~(col("orc.group_outlet_id").eqNullSafe(col("pg.group_outlet_id"))) |
                     ~(col("orc.group_harga_id").eqNullSafe(col("pg.group_harga_id"))) |
-                    ~(col("orc.specific_outlet_id").eqNullSafe(col("pg.specific_outlet_id")))
+                    ~(col("orc.specific_outlet_id").eqNullSafe(col("pg.specific_outlet_id"))) |
+                    ~(col("orc.classification_id").eqNullSafe(col("pg.classification_id")))
                 )
             ).select(
                 col("orc.*"),
@@ -325,30 +330,33 @@ def process_partition(iterator):
         # 2. Loop through the rows in this partition
         for row in iterator:
             if row["operation_status"] == "INSERT":
-                cur.execute("""
-                    INSERT INTO myo.m_outlet(
-                        dist_id, outlet_id, outlet_name, owner_name, channel_id, addr, longitude, latitude, 
-                        barcode, group_payer_id, group_disc_id, group_outlet_id, group_harga_id, 
-                        specific_outlet_id, created_on, created_by
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                cur.execute(f"""
+                    INSERT INTO {PG_SCHEMA}.m_outlet(
+                        dist_id, outlet_id, outlet_name, owner_name, channel_id, addr, longitude, latitude,
+                        barcode, group_payer_id, group_disc_id, group_outlet_id, group_harga_id,
+                        specific_outlet_id, classification_id, created_on, created_by
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """, (
                     row['dist_id'], row['outlet_id'], row['outlet_name'], row['owner_name'], row['channel_id'],
                     row['addr'], row['longitude'], row['latitude'], row['barcode'], row['group_payer_id'],
                     row['group_disc_id'], row['group_outlet_id'], row['group_harga_id'],
-                    row['specific_outlet_id'], row['created_on_final'], row['created_by_final']
+                    row['specific_outlet_id'], row['classification_id'],
+                    row['created_on_final'], row['created_by_final']
                 ))
             else: # UPDATE
-                cur.execute("""
-                    UPDATE myo.m_outlet
-                    SET outlet_name = %s, owner_name = %s, channel_id = %s, addr = %s, longitude = %s, 
-                        latitude = %s, barcode = %s, group_payer_id = %s, group_disc_id = %s, 
-                        group_outlet_id = %s, group_harga_id = %s, specific_outlet_id = %s, 
+                cur.execute(f"""
+                    UPDATE {PG_SCHEMA}.m_outlet
+                    SET outlet_name = %s, owner_name = %s, channel_id = %s, addr = %s, longitude = %s,
+                        latitude = %s, barcode = %s, group_payer_id = %s, group_disc_id = %s,
+                        group_outlet_id = %s, group_harga_id = %s, specific_outlet_id = %s,
+                        classification_id = %s,
                         modified_on = %s, modified_by = %s
                     WHERE dist_id = %s AND outlet_id = %s
                 """, (
                     row['outlet_name'], row['owner_name'], row['channel_id'], row['addr'], row['longitude'],
                     row['latitude'], row['barcode'], row['group_payer_id'], row['group_disc_id'],
                     row['group_outlet_id'], row['group_harga_id'], row['specific_outlet_id'],
+                    row['classification_id'],
                     row['modified_on_final'], row['modified_by_final'], row['dist_id'], row['outlet_id']
                 ))
         

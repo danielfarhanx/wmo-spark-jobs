@@ -57,6 +57,9 @@ MYO_DB_PROPERTIES = {
     "driver": "org.postgresql.Driver"
 }
 
+# Optional 9th arg: source PostgreSQL schema. Defaults to "myo" when omitted.
+PG_SCHEMA = sys.argv[9] if len(sys.argv) > 9 else "myo"
+
 def run_job_sku_penjatahan(oracle_url, oracle_user, oracle_password):
     """
     Main function to synchronize item mapping data from PostgreSQL to Oracle.
@@ -91,10 +94,10 @@ def run_job_sku_penjatahan(oracle_url, oracle_user, oracle_password):
         try:
             # --- 4.1 Read from PostgreSQL Source ---
             logger.info("Reading item mapping data from PostgreSQL source.")
-            sql_query_master_item = """
+            sql_query_master_item = f"""
             (
             SELECT item_id, sku_id, priority
-            FROM myo.m_item_map
+            FROM {PG_SCHEMA}.m_item_map
             ) temp_m_item_map
             """
             df_pg_myo_master_item = spark.read.jdbc(

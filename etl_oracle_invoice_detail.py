@@ -59,6 +59,9 @@ MYO_DB_PROPERTIES = {
     "driver": "org.postgresql.Driver"
 }
 
+# Optional 9th arg: target PostgreSQL schema. Defaults to "myo" when omitted.
+PG_SCHEMA = sys.argv[9] if len(sys.argv) > 9 else "myo"
+
 def run_job_outlet(oracle_url, oracle_user, oracle_password):
     """
     Main function to run the ETL job for invoice detail data.
@@ -225,10 +228,10 @@ def run_job_outlet(oracle_url, oracle_user, oracle_password):
 
             source_dist_id = df_orc_invoice_d.select("dist_id").distinct().collect()[0]["dist_id"]
 
-            myo_invoice_h_sql_query = f"(SELECT * FROM myo.t_invoice_h WHERE dist_id = '{source_dist_id}') AS filtered_invoice_h"
+            myo_invoice_h_sql_query = f"(SELECT * FROM {PG_SCHEMA}.t_invoice_h WHERE dist_id = '{source_dist_id}') AS filtered_invoice_h"
             df_pg_myo_invoice_h = spark.read.jdbc(url=MYO_JDBC_URL, table=myo_invoice_h_sql_query, properties=MYO_DB_PROPERTIES)
 
-            myo_invoice_d_sql_query = f"(select tid.* from myo.t_invoice_d tid join myo.t_invoice_h tih on tid.invoice_id = tih.id and tih.dist_id = '{source_dist_id}') AS filtered_invoice_d"
+            myo_invoice_d_sql_query = f"(select tid.* from {PG_SCHEMA}.t_invoice_d tid join {PG_SCHEMA}.t_invoice_h tih on tid.invoice_id = tih.id and tih.dist_id = '{source_dist_id}') AS filtered_invoice_d"
             df_pg_myo_invoice_d = spark.read.jdbc(url=MYO_JDBC_URL, table=myo_invoice_d_sql_query, properties=MYO_DB_PROPERTIES)
 
             # --- 4.4 Join, Find Changes, and Prepare for Upsert ---
@@ -294,8 +297,8 @@ def run_job_outlet(oracle_url, oracle_user, oracle_password):
 
                 for row in df_joined.collect():
                     if row["operation_status"] == "INSERT":
-                        cur.execute("""
-                            INSERT INTO myo.t_invoice_d(
+                        cur.execute(f"""
+                            INSERT INTO {PG_SCHEMA}.t_invoice_d(
                                 invoice_id, pcode, inv_nett, ori_qty, qty,
                                 ori_xqty, xqty, created_on, created_by
                             ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
@@ -306,8 +309,8 @@ def run_job_outlet(oracle_url, oracle_user, oracle_password):
                         ))
                         insert_success_count += 1
                     else: # UPDATE
-                        cur.execute("""
-                            UPDATE myo.t_invoice_d
+                        cur.execute(f"""
+                            UPDATE {PG_SCHEMA}.t_invoice_d
                             SET inv_nett = %s, ori_qty = %s, qty = %s,
                                 ori_xqty = %s, xqty = %s,
                                 modified_on = %s, modified_by = %s

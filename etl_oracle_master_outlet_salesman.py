@@ -54,6 +54,9 @@ MYO_DB_PROPERTIES = {
     "driver": "org.postgresql.Driver"
 }
 
+# Optional 9th arg: target PostgreSQL schema. Defaults to "myo" when omitted.
+PG_SCHEMA = sys.argv[9] if len(sys.argv) > 9 else "myo"
+
 def run_job_outlet_salesman(oracle_url, oracle_user, oracle_password):
     """
     Main function to synchronize outlet-salesman data from Oracle to PostgreSQL.
@@ -94,7 +97,7 @@ def run_job_outlet_salesman(oracle_url, oracle_user, oracle_password):
             JOIN {schema}.FSLS fs ON f.SLSNO = fs.SLSNO AND fs.FLAG_NONAKTIF IS NULL
             LEFT JOIN {schema}.FTABLE74 f2 ON f.SLSNO = f2.SLSNO
             JOIN {schema}.FTABLE74_D f3 ON f2.EMPNO = f3.EMPNO
-            JOIN {schema}.FCUSTMST f4 ON f.CUSTNO = f4.CUSTNO AND f4.TYPEOUT IN ('105','108','109','110','114','115','116','120','122','123','124','126','127','150','159','160','160','173','180','701','702','703') 
+            JOIN {schema}.FCUSTMST f4 ON f.CUSTNO = f4.CUSTNO
             UNION
             SELECT DISTINCT (SELECT MEMOSTRING FROM {schema}.FMEMO WHERE memonama = 'KODEDIST') dist_id, f.CUSTNO, f2.EMPNO, 
                             f.SLSNO, fs.SLSNAME, fs.DATA04 SLSFC, f3.DIVISI_ID
@@ -107,7 +110,6 @@ def run_job_outlet_salesman(oracle_url, oracle_user, oracle_password):
                 SELECT DISTINCT f2.GROUPPAYER
                 FROM {schema}.FCUSTMST f
                 JOIN {schema}.FTABLE48 f2 ON f.CUSTNO = f2.CUSTNO
-                WHERE f.TYPEOUT IN ('105','108','109','110','114','115','116','120','122','123','124','126','127','150','159','160','160','173','180','701','702','703') 
             )
             ) temp_outlet_salesman
             """
@@ -118,9 +120,9 @@ def run_job_outlet_salesman(oracle_url, oracle_user, oracle_password):
             # --- 4.2 Read from PostgreSQL Target & Dimension Tables ---
             logger.info("Reading dimension (m_outlet) and target (m_outlet_salesman) tables from PostgreSQL.")
             source_dist_id = df_orc_source.select("dist_id").distinct().collect()[0]["dist_id"]
-            full_sql_query = f"(SELECT * FROM myo.m_outlet WHERE dist_id = {source_dist_id}) AS filtered_outlet"
+            full_sql_query = f"(SELECT * FROM {PG_SCHEMA}.m_outlet WHERE dist_id = {source_dist_id}) AS filtered_outlet"
             df_pg_outlet_dim = spark.read.jdbc(url=MYO_JDBC_URL, table=full_sql_query, properties=MYO_DB_PROPERTIES)
-            df_pg_target = spark.read.jdbc(url=MYO_JDBC_URL, table=f"(SELECT * FROM myo.m_outlet_salesman WHERE outlet_id in (SELECT id FROM myo.m_outlet WHERE dist_id = {source_dist_id})) AS filtered_outlet_salesman", properties=MYO_DB_PROPERTIES)
+            df_pg_target = spark.read.jdbc(url=MYO_JDBC_URL, table=f"(SELECT * FROM {PG_SCHEMA}.m_outlet_salesman WHERE outlet_id in (SELECT id FROM {PG_SCHEMA}.m_outlet WHERE dist_id = {source_dist_id})) AS filtered_outlet_salesman", properties=MYO_DB_PROPERTIES)
             
             # --- 4.3 Prepare Source Data (Translate outlet_id) ---
             logger.info("Preparing source data by mapping Oracle CUSTNO to PostgreSQL outlet ID.")
@@ -201,8 +203,8 @@ def run_job_outlet_salesman(oracle_url, oracle_user, oracle_password):
                 for row in df_changes.collect():
                     op = row["operation_status"]
                     if op == "INSERT":
-                        cur.execute("""
-                            INSERT INTO myo.m_outlet_salesman(
+                        cur.execute(f"""
+                            INSERT INTO {PG_SCHEMA}.m_outlet_salesman(
                                 outlet_id, spv_id, sls_id, sls_name, slsfc_id, sls_div, created_on, created_by
                             ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                         """, (
@@ -211,8 +213,8 @@ def run_job_outlet_salesman(oracle_url, oracle_user, oracle_password):
                         ))
                         insert_success += 1
                     elif op == "UPDATE":
-                        cur.execute("""
-                            UPDATE myo.m_outlet_salesman
+                        cur.execute(f"""
+                            UPDATE {PG_SCHEMA}.m_outlet_salesman
                             SET sls_name = %s, slsfc_id = %s, sls_div = %s, modified_on = %s, modified_by = %s
                             WHERE outlet_id = %s AND spv_id = %s AND sls_id = %s
                         """, (
@@ -221,8 +223,8 @@ def run_job_outlet_salesman(oracle_url, oracle_user, oracle_password):
                         ))
                         update_success += 1
                     elif op == "DELETE":
-                        cur.execute("""
-                            DELETE FROM myo.m_outlet_salesman
+                        cur.execute(f"""
+                            DELETE FROM {PG_SCHEMA}.m_outlet_salesman
                             WHERE outlet_id = %s AND spv_id = %s AND sls_id = %s
                         """, (row['outlet_id'], row['spv_id'], row['sls_id']))
                         delete_success += 1

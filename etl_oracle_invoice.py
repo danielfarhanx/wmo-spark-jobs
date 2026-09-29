@@ -59,6 +59,9 @@ MYO_DB_PROPERTIES = {
     "driver": "org.postgresql.Driver"
 }
 
+# Optional 9th arg: target PostgreSQL schema. Defaults to "myo" when omitted.
+PG_SCHEMA = sys.argv[9] if len(sys.argv) > 9 else "myo"
+
 def run_job_outlet(oracle_url, oracle_user, oracle_password):
     """
     Main function to run the ETL job for processing invoice data.
@@ -171,13 +174,13 @@ def run_job_outlet(oracle_url, oracle_user, oracle_password):
 
             source_dist_id = df_orc_invoice_h.select("dist_id").distinct().collect()[0]["dist_id"]
 
-            myo_outlet_sql_query = f"(SELECT * FROM myo.m_outlet WHERE dist_id = {source_dist_id}) AS filtered_outlet"
+            myo_outlet_sql_query = f"(SELECT * FROM {PG_SCHEMA}.m_outlet WHERE dist_id = {source_dist_id}) AS filtered_outlet"
             df_pg_myo_outlet = spark.read.jdbc(url=MYO_JDBC_URL, table=myo_outlet_sql_query, properties=MYO_DB_PROPERTIES)
 
-            myo_invoice_h_sql_query = f"(SELECT * FROM myo.t_invoice_h WHERE dist_id = '{source_dist_id}') AS filtered_invoice_h"
+            myo_invoice_h_sql_query = f"(SELECT * FROM {PG_SCHEMA}.t_invoice_h WHERE dist_id = '{source_dist_id}') AS filtered_invoice_h"
             df_pg_myo_invoice_h = spark.read.jdbc(url=MYO_JDBC_URL, table=myo_invoice_h_sql_query, properties=MYO_DB_PROPERTIES)
 
-            myo_order_h_sql_query = f"(SELECT * FROM myo.t_order_h WHERE subdist_id = '{source_dist_id}') AS filtered_order_h"
+            myo_order_h_sql_query = f"(SELECT * FROM {PG_SCHEMA}.t_order_h WHERE subdist_id = '{source_dist_id}') AS filtered_order_h"
             df_pg_myo_order_h = spark.read.jdbc(url=MYO_JDBC_URL, table=myo_order_h_sql_query, properties=MYO_DB_PROPERTIES)
 
             # --- 4.4 Join, Find Changes, and Prepare for Upsert ---
@@ -357,8 +360,8 @@ def run_job_outlet(oracle_url, oracle_user, oracle_password):
 
                 for row in df_joined.collect():
                     if row["operation_status"] == "INSERT":
-                        cur.execute("""
-                            INSERT INTO myo.t_invoice_h(
+                        cur.execute(f"""
+                            INSERT INTO {PG_SCHEMA}.t_invoice_h(
                                 order_no, dist_id, outlet_id, sls_id, invoice_no, invoice_date,
                                 invoice_amount, discount_total, order_type, due_date,
                                 delivery_status, payment_status, created_on, created_by
@@ -372,8 +375,8 @@ def run_job_outlet(oracle_url, oracle_user, oracle_password):
                         ))
                         insert_success_count += 1
                     else: # UPDATE
-                        cur.execute("""
-                            UPDATE myo.t_invoice_h
+                        cur.execute(f"""
+                            UPDATE {PG_SCHEMA}.t_invoice_h
                             SET sls_id = %s, invoice_date = %s, invoice_amount = %s,
                                 discount_total = %s, order_type = %s, due_date = %s,
                                 delivery_status = %s, payment_status = %s,
