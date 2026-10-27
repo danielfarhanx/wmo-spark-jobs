@@ -53,12 +53,15 @@ except Exception as e:
     sys.exit(1)
 
 # --- PostgreSQL Connection Details (Source) ---
-MYO_JDBC_URL = "jdbc:postgresql://ss-qa-api.mayora.co.id:5432/mayora-online"
+MYO_JDBC_URL = "jdbc:postgresql://" + sys.argv[4] #"ss-qa-api.mayora.co.id:5432/mayora-online"
 MYO_DB_PROPERTIES = {
-    "user": "postgres",
-    "password": "postgres",
+    "user": sys.argv[5], #"postgres",
+    "password": sys.argv[6], #"postgres",
     "driver": "org.postgresql.Driver"
 }
+
+# Optional 9th arg: source PostgreSQL schema. Defaults to "myo" when omitted.
+PG_SCHEMA = sys.argv[9] if len(sys.argv) > 9 else "myo"
 
 def run_job_sku_penjatahan(oracle_url, oracle_user, oracle_password):
     """
@@ -77,7 +80,7 @@ def run_job_sku_penjatahan(oracle_url, oracle_user, oracle_password):
     # ==============================================================================
     try:
         logger.info(f"Fetching target distributor schemas from Oracle: {oracle_url}")
-        dba_query = "(SELECT username FROM sys.dba_users WHERE username LIKE '%USERMYR17%') temp"
+        dba_query = f"(SELECT username FROM sys.dba_users WHERE username in ('{sys.argv[7]}')) temp" #USERMYR
         df_schema = spark.read.jdbc(url=ORACLE_JDBC_URL, table=dba_query, properties=ORACLE_DB_PROPERTIES)
         schemas = [row['USERNAME'] for row in df_schema.collect()]
         logger.info(f"Found {len(schemas)} schemas to process: {schemas}")
@@ -94,7 +97,7 @@ def run_job_sku_penjatahan(oracle_url, oracle_user, oracle_password):
         try:
             # --- 4.1 Read from PostgreSQL Source ---
             logger.info("Reading master item data from PostgreSQL source.")
-            sql_query_master_item = """
+            sql_query_master_item = f"""
             (
             SELECT
                 msp.id::text item_id, mi.item_name,
@@ -104,8 +107,8 @@ def run_job_sku_penjatahan(oracle_url, oracle_user, oracle_password):
                 weight3 weight_netto, weight_bruto,
                 sellprice1, sellprice2, sellprice3,
                 '1' flag_active, subbrand_id matgr
-            FROM mygotesting.m_sku_product msp
-            JOIN mygotesting.m_item mi ON msp.id = mi.id
+            FROM {PG_SCHEMA}.m_sku_product msp
+            JOIN {PG_SCHEMA}.m_item mi ON msp.id = mi.id
             ) temp_m_item
             """
             df_pg_myo_master_item = spark.read.jdbc(
@@ -273,9 +276,9 @@ def run_job_sku_penjatahan(oracle_url, oracle_user, oracle_password):
 # 5. JOB EXECUTION
 # ==============================================================================
 if __name__ == "__main__":
-    ORACLE_URL = "192.168.8.249:1521/DBMYR"
-    ORACLE_USER = "system"
-    ORACLE_PASSWORD = "ditributionexcellentKM18"
+    ORACLE_URL = sys.argv[1] #"192.168.8.249:1521/DBMYR"
+    ORACLE_USER = sys.argv[2] #"system"
+    ORACLE_PASSWORD = sys.argv[3] #"ditributionexcellentKM18"
     
     run_job_sku_penjatahan(ORACLE_URL, ORACLE_USER, ORACLE_PASSWORD)
     
