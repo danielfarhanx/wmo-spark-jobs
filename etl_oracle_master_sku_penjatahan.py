@@ -34,12 +34,16 @@ ORACLE_DRIVER_PATH = "/opt/jars/ojdbc8.jar"
 try:
     spark = SparkSession.builder \
         .appName("EtlOracleMasterSkuPenjatahan") \
-        .config("spark.driver.extraClassPath", f"{POSTGRES_DRIVER_PATH}:{ORACLE_DRIVER_PATH}") \
+        .config("spark.driver.extraClassPath", f"{POSTGRES_DRIVER_PATH}:{ORACLE_DRIVER_PATH}")  \
         .config("spark.driver.extraJavaOptions", "-Doracle.jdbc.timezoneAsRegion=false")  \
         .config("spark.executor.extraJavaOptions", "-Doracle.jdbc.timezoneAsRegion=false")  \
+        .config("spark.jars.ivy","/tmp/.ivy") \
+        .config("spark.executorEnv.LD_PRELOAD","/opt/bitnami/common/lib/libnss_wrapper.so") \
+        .config("spark.hadoop.security.authentication", "NOSASL") \
         .config("spark.network.timeout", "1000s") \
         .config("spark.executor.heartbeatInterval", "60s") \
         .config("spark.sql.broadcastTimeout", "1000s") \
+        .config("spark.log.level", "WARN") \
         .getOrCreate()
     
     logger.info("SparkSession configured and created successfully.")
@@ -50,15 +54,12 @@ except Exception as e:
     sys.exit(1)
 
 # --- PostgreSQL Connection Details (Target) ---
-MYO_JDBC_URL = "jdbc:postgresql://" + sys.argv[4] #"ss-qa-api.mayora.co.id:5432/mayora-online"
+MYO_JDBC_URL = "jdbc:postgresql://ss-qa-api.mayora.co.id:5432/mayora-online"
 MYO_DB_PROPERTIES = {
-    "user": sys.argv[5], #"postgres",
-    "password": sys.argv[6], #"postgres",
+    "user": "postgres",
+    "password": "postgres",
     "driver": "org.postgresql.Driver"
 }
-
-# Optional 9th arg: target PostgreSQL schema. Defaults to "myo" when omitted.
-PG_SCHEMA = sys.argv[9] if len(sys.argv) > 9 else "myo"
 
 def run_job_sku_penjatahan(oracle_url, oracle_user, oracle_password):
     """
@@ -77,7 +78,7 @@ def run_job_sku_penjatahan(oracle_url, oracle_user, oracle_password):
     # ==============================================================================
     try:
         logger.info(f"Fetching source distributor schemas from Oracle: {oracle_url}")
-        dba_query = f"(SELECT username FROM sys.dba_users WHERE username in ('{sys.argv[7]}')) temp" #USERMYR
+        dba_query = "(SELECT username FROM sys.dba_users WHERE username LIKE '%USERMYR17%') temp"
         df_schema = spark.read.jdbc(url=ORACLE_JDBC_URL, table=dba_query, properties=ORACLE_DB_PROPERTIES)
         schemas = [row['USERNAME'] for row in df_schema.collect()]
         logger.info(f"Found {len(schemas)} schemas to process: {schemas}")
@@ -141,7 +142,7 @@ def run_job_sku_penjatahan(oracle_url, oracle_user, oracle_password):
             logger.info("Reading SKU parameter data from PostgreSQL target table.")
             df_pg_myo_sku_penjatahan = spark.read.jdbc(
                 url=MYO_JDBC_URL,
-                table=f"{PG_SCHEMA}.m_sku_parameter",
+                table="mygotesting.m_sku_parameter",
                 properties=MYO_DB_PROPERTIES
             )
             logger.info(f"Successfully read {df_pg_myo_sku_penjatahan.count()} rows from PostgreSQL target.")
@@ -195,8 +196,8 @@ def run_job_sku_penjatahan(oracle_url, oracle_user, oracle_password):
             try:
                 logger.info("Connecting to PostgreSQL target using psycopg2 for write operation.")
                 conn_pg = psycopg2.connect(
-                    dbname="mayora-online", user=sys.argv[5], password=sys.argv[6],
-                    host=sys.argv[8], port="5432"
+                    dbname="mayora-online", user="postgres", password="postgres",
+                    host="ss-qa-api.mayora.co.id", port="5432"
                 )
                 cur = conn_pg.cursor()
                 logger.info("PostgreSQL connection successful. Starting transaction.")
@@ -205,8 +206,8 @@ def run_job_sku_penjatahan(oracle_url, oracle_user, oracle_password):
 
                 for row in df_joined.collect():
                     if row["operation_status"] == "INSERT":
-                        cur.execute(f"""
-                            INSERT INTO {PG_SCHEMA}.m_sku_parameter(
+                        cur.execute("""
+                            INSERT INTO mygotesting.m_sku_parameter(
                                 dist_id, pcode_id, is_penjatahan, is_last_bite, created_on, created_by
                             ) VALUES (%s, %s, %s, %s, %s, %s)
                         """, (
@@ -215,8 +216,8 @@ def run_job_sku_penjatahan(oracle_url, oracle_user, oracle_password):
                         ))
                         insert_success += 1
                     elif row["operation_status"] == "UPDATE":
-                        cur.execute(f"""
-                            UPDATE {PG_SCHEMA}.m_sku_parameter
+                        cur.execute("""
+                            UPDATE mygotesting.m_sku_parameter
                             SET is_penjatahan = %s, is_last_bite = %s, modified_on = %s, modified_by = %s
                             WHERE dist_id = %s and pcode_id = %s
                         """, (
@@ -225,8 +226,8 @@ def run_job_sku_penjatahan(oracle_url, oracle_user, oracle_password):
                         ))
                         update_success += 1
                     else: # DELETE
-                        cur.execute(f"""
-                            DELETE FROM {PG_SCHEMA}.m_sku_parameter
+                        cur.execute("""
+                            DELETE FROM mygotesting.m_sku_parameter
                             WHERE dist_id = %s and pcode_id = %s
                         """, (row['dist_id'], row['pcode_id']))
                         delete_success += 1
@@ -257,9 +258,9 @@ def run_job_sku_penjatahan(oracle_url, oracle_user, oracle_password):
 # 5. JOB EXECUTION
 # ==============================================================================
 if __name__ == "__main__":
-    ORACLE_URL = sys.argv[1] #"192.168.8.249:1521/DBMYR"
-    ORACLE_USER = sys.argv[2] #"system"
-    ORACLE_PASSWORD = sys.argv[3] #"ditributionexcellentKM18"
+    ORACLE_URL = "192.168.8.249:1521/DBMYR"
+    ORACLE_USER = "system"
+    ORACLE_PASSWORD = "ditributionexcellentKM18"
     
     run_job_sku_penjatahan(ORACLE_URL, ORACLE_USER, ORACLE_PASSWORD)
     

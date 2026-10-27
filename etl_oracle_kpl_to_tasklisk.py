@@ -61,12 +61,9 @@ MYO_DB_PROPERTIES = {
 
 # tasklist_uuid, created_at and the call rollups are filled by column defaults.
 TARGET_TABLE = f"{PG_SCHEMA}.t_tasklist_h"
-TARGET_COLUMNS = ["tasklist_date", "outlet_id", "user_id", "created_by"]
+TARGET_COLUMNS = ["tasklist_date", "outlet_id", "receivable", "user_id", "created_by"]
 # Matches the partial unique index t_tasklist_h_uq (tasklist_date, outlet_id) WHERE deleted_at IS NULL
 CONFLICT_COLUMNS = ["tasklist_date", "outlet_id"]
-
-# TODO: resolve the real agent per salesman (m_user_vs_distributor -> m_user in MongoDB)
-DEFAULT_USER_ID = "telesales1"
 
 # ==============================================================================
 # 3. SPARK SESSION
@@ -124,15 +121,26 @@ def run_job():
             # DATA1 is an Oracle DATE (carries a time); sent as text so the JVM/session
             # time zone cannot shift it to another day.
             # TESTING: all dates are read. For production, restore the today-only filter:
-            #   WHERE f.DATA1 >= TRUNC(SYSDATE) AND f.DATA1 < TRUNC(SYSDATE) + 1
+            #   WHERE kpl.DATA1 >= TRUNC(SYSDATE) AND =kpl.DATA1 < TRUNC(SYSDATE) + 1
             sql_query_oracle = f"""
             (
             SELECT
                 (SELECT MEMOSTRING FROM {schema}.FMEMO WHERE memonama = 'KODEDIST') dist_id,
-                TO_CHAR(f.DATA1, 'YYYY-MM-DD') call_date,
-                TRIM(f.DATA2) sls_no,
-                TRIM(f.DATA3) cust_no
-            FROM {schema}.FTABEL46 f
+                TO_CHAR(kpl.DATA1, 'YYYY-MM-DD') call_date,
+                TRIM(kpl.DATA2) sls_no,
+                TRIM(kpl.DATA3) cust_no,
+                NVL(ar.receivable, 0) as receivable
+            FROM {schema}.FTABEL46 kpl
+            LEFT JOIN 
+            (
+             SELECT TRIM(fjh.CUSTNO) custno,
+             SUM(fjh.INVAMOUNTCHARGE - NVL(fjh.AMOUNTPAIDCHARGE, 0)) receivable   
+             FROM {schema}.FJUAL_H fjh
+             WHERE NVL(fjh.PAIDFLAG, ' ') <> '*'
+             AND fjh.TRANSTYPE = 'F'
+             AND NVL(fjh.AMOUNTPAIDCHARGE, 0) < fjh.INVAMOUNTCHARGE
+            GROUP BY TRIM(fjh.CUSTNO)            
+            ) ar ON AR.custno = TRIM(kpl.DATA3)
             ) temp_kpl_oracle
             """
             df_oracle = read_oracle(sql_query_oracle).select(
@@ -140,6 +148,7 @@ def run_job():
                 F.to_date(col("CALL_DATE")).alias("call_date"),
                 col("SLS_NO").alias("sls_id"),
                 col("CUST_NO").alias("cust_no"),
+                col("RECEIVABLE").cast("decimal(18,2)").alias("receivable"),
             ).cache()
             oracle_count = df_oracle.count()
             logger.info(f"Read {oracle_count} rows from Oracle.")
@@ -151,11 +160,14 @@ def run_job():
             # Filter by the distributor just read, so only this schema's rows come over.
             dist_id = df_oracle.select("dist_id").first()["dist_id"]
 
-            # Salesmen handled by the call centre. Inner-joined below, so KPL rows of
-            # unmapped salesmen get no task.
+            # Salesmen handled by the call centre, with the agent (auth-service
+            # userId) who owns their KPL. The web app shows a task only to that
+            # user. Inner-joined below, so KPL rows of unmapped salesmen get no
+            # task. Two active users on one sls_id fan the join out, and
+            # dropDuplicates then picks one of them arbitrarily.
             sql_query_user = f"""
             (
-            SELECT muvd.dist_id, muvd.sls_id
+            SELECT muvd.dist_id, muvd.sls_id, muvd.user_id
             FROM {PG_SCHEMA}.m_user_vs_distributor muvd
             WHERE muvd.dist_id = {dist_id} AND muvd.is_active = true
             ) temp_user_vs_dist_pg
@@ -186,7 +198,8 @@ def run_job():
                 .select(
                     col("call_date").alias("tasklist_date"),
                     col("outlet_id"),
-                    F.lit(DEFAULT_USER_ID).alias("user_id"),
+                    col("receivable"),
+                    col("user_id"),
                     F.lit("SYS").alias("created_by"),
                 ) \
                 .dropDuplicates(CONFLICT_COLUMNS) \

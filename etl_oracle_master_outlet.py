@@ -118,14 +118,14 @@ def run_job_outlet(oracle_url, oracle_user, oracle_password):
                     WHEN f2.groupdivisi='M3' THEN f5.nobarcode3 
                     WHEN f2.groupdivisi = 'ALL' THEN f5.nobarcode1 
                 END nobarcode,
-                f2.GROUPPAYER, f.GDISC, f.GRUPOUT, f.GHARGA, f.DATA15 SPECIFICOUT, TRIM(f.CLASS) CLASS
-            FROM {schema}.FCUSTMST f 
+                f2.GROUPPAYER, f.GDISC, f.GRUPOUT, f.GHARGA, f.DATA15 SPECIFICOUT, TRIM(f.CLASS) CLASS, f.CLIMIT, TRIM(f.CPHONE1) CPHONE1
+            FROM {schema}.FCUSTMST f
             JOIN {schema}.FTABLE48 f2 ON f.CUSTNO = f2.CUSTNO
             LEFT JOIN (
                 SELECT a.CUSTNO, a.LONGITUDE, a.LATITUDE FROM (
                     SELECT a.CUSTNO, a.LONGITUDE, a.LATITUDE,
                            RANK() OVER (PARTITION BY a.CUSTNO ORDER BY REGISTRATIONDATE DESC) urut
-                    FROM {schema}.FTABLE274 a 
+                    FROM {schema}.FTABLE274 a
                     LEFT JOIN {schema}.FTABLE275 f ON a.CUSTNO = f.CUSTNO AND f.FLAG_APPROVED = '1'
                 ) a WHERE urut = 1
             ) f4 ON f4.CUSTNO = f.CUSTNO
@@ -150,14 +150,14 @@ def run_job_outlet(oracle_url, oracle_user, oracle_password):
                     WHEN f2.groupdivisi='M3' THEN f5.nobarcode3 
                     WHEN f2.groupdivisi = 'ALL' THEN f5.nobarcode1 
                 END nobarcode,
-                f2.GROUPPAYER, f.GDISC, f.GRUPOUT, f.GHARGA, f.DATA15 SPECIFICOUT, TRIM(f.CLASS) CLASS
-            FROM {schema}.FCUSTMST f 
+                f2.GROUPPAYER, f.GDISC, f.GRUPOUT, f.GHARGA, f.DATA15 SPECIFICOUT, TRIM(f.CLASS) CLASS, f.CLIMIT, TRIM(f.CPHONE1) CPHONE1
+            FROM {schema}.FCUSTMST f
             JOIN {schema}.FTABLE48 f2 ON f.CUSTNO = f2.CUSTNO
             LEFT JOIN (
                 SELECT a.CUSTNO, a.LONGITUDE, a.LATITUDE FROM (
                     SELECT a.CUSTNO, a.LONGITUDE, a.LATITUDE,
                            RANK() OVER (PARTITION BY a.CUSTNO ORDER BY REGISTRATIONDATE DESC) urut
-                    FROM {schema}.FTABLE274 a 
+                    FROM {schema}.FTABLE274 a
                     LEFT JOIN {schema}.FTABLE275 f ON a.CUSTNO = f.CUSTNO AND f.FLAG_APPROVED = '1'
                 ) a WHERE urut = 1
             ) f4 ON f4.CUSTNO = f.CUSTNO
@@ -182,7 +182,8 @@ def run_job_outlet(oracle_url, oracle_user, oracle_password):
                 col("nobarcode").alias("barcode"), col("GROUPPAYER").alias("group_payer_id"),
                 col("GDISC").alias("group_disc_id"), col("GRUPOUT").alias("group_outlet_id"),
                 col("GHARGA").alias("group_harga_id"), col("SPECIFICOUT").alias("specific_outlet_id"),
-                col("CLASS").alias("classification_id"),
+                col("CLASS").alias("classification_id"), col("CLIMIT").alias("climit"),
+                col("CPHONE1").alias("cphone1"),
                 F.current_timestamp().alias("created_on"), F.lit("SYS").alias("created_by"),
                 F.lit(None).alias("modified_on"), F.lit(None).alias("modified_by")
             )
@@ -217,7 +218,9 @@ def run_job_outlet(oracle_url, oracle_user, oracle_password):
                     ~(col("orc.group_outlet_id").eqNullSafe(col("pg.group_outlet_id"))) |
                     ~(col("orc.group_harga_id").eqNullSafe(col("pg.group_harga_id"))) |
                     ~(col("orc.specific_outlet_id").eqNullSafe(col("pg.specific_outlet_id"))) |
-                    ~(col("orc.classification_id").eqNullSafe(col("pg.classification_id")))
+                    ~(col("orc.classification_id").eqNullSafe(col("pg.classification_id"))) |
+                    ~(col("orc.climit").eqNullSafe(col("pg.climit"))) |
+                    ~(col("orc.cphone1").eqNullSafe(col("pg.cphone1")))
                 )
             ).select(
                 col("orc.*"),
@@ -334,13 +337,13 @@ def process_partition(iterator):
                     INSERT INTO {PG_SCHEMA}.m_outlet(
                         dist_id, outlet_id, outlet_name, owner_name, channel_id, addr, longitude, latitude,
                         barcode, group_payer_id, group_disc_id, group_outlet_id, group_harga_id,
-                        specific_outlet_id, classification_id, created_on, created_by
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        specific_outlet_id, classification_id, climit, cphone1, created_on, created_by
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """, (
                     row['dist_id'], row['outlet_id'], row['outlet_name'], row['owner_name'], row['channel_id'],
                     row['addr'], row['longitude'], row['latitude'], row['barcode'], row['group_payer_id'],
                     row['group_disc_id'], row['group_outlet_id'], row['group_harga_id'],
-                    row['specific_outlet_id'], row['classification_id'],
+                    row['specific_outlet_id'], row['classification_id'], row['climit'], row['cphone1'],
                     row['created_on_final'], row['created_by_final']
                 ))
             else: # UPDATE
@@ -349,14 +352,14 @@ def process_partition(iterator):
                     SET outlet_name = %s, owner_name = %s, channel_id = %s, addr = %s, longitude = %s,
                         latitude = %s, barcode = %s, group_payer_id = %s, group_disc_id = %s,
                         group_outlet_id = %s, group_harga_id = %s, specific_outlet_id = %s,
-                        classification_id = %s,
+                        classification_id = %s, climit = %s, cphone1 = %s,
                         modified_on = %s, modified_by = %s
                     WHERE dist_id = %s AND outlet_id = %s
                 """, (
                     row['outlet_name'], row['owner_name'], row['channel_id'], row['addr'], row['longitude'],
                     row['latitude'], row['barcode'], row['group_payer_id'], row['group_disc_id'],
                     row['group_outlet_id'], row['group_harga_id'], row['specific_outlet_id'],
-                    row['classification_id'],
+                    row['classification_id'], row['climit'], row['cphone1'],
                     row['modified_on_final'], row['modified_by_final'], row['dist_id'], row['outlet_id']
                 ))
         
