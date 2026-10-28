@@ -130,7 +130,6 @@ def run_job_outlet(oracle_url, oracle_user, oracle_password):
                 ) a WHERE urut = 1
             ) f4 ON f4.CUSTNO = f.CUSTNO
             LEFT JOIN {schema}.FTABLE21 f5 ON f.CUSTNO = f5.CUSTNO
-            WHERE f.TYPEOUT IN ('105','108','109','110','114','115','116','120','122','123','124','126','127','150','159','160','160','173','180','701','702','703') 
             UNION
             SELECT 
                 (SELECT MEMOSTRING FROM {schema}.FMEMO WHERE memonama = 'KODEDIST') dist_id, f.CUSTNO, f.CUSTNAME, f.CCONTACT, f.TYPEOUT, f.CUSTADD1||' '||f.CUSTADD2 addr, 
@@ -166,7 +165,6 @@ def run_job_outlet(oracle_url, oracle_user, oracle_password):
                 SELECT DISTINCT f2.GROUPPAYER
                 FROM {schema}.FCUSTMST f
                 JOIN {schema}.FTABLE48 f2 ON f.CUSTNO = f2.CUSTNO
-                WHERE f.TYPEOUT IN ('105','108','109','110','114','115','116','120','122','123','124','126','127','150','159','160','160','173','180','701','702','703') 
             ) 
             ) temp_outlet
             """
