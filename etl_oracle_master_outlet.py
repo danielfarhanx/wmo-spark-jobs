@@ -61,6 +61,9 @@ MYO_DB_PROPERTIES = {
     "driver": "org.postgresql.Driver"
 }
 
+# Optional 9th arg: target PostgreSQL schema. Defaults to "myo" when omitted.
+PG_SCHEMA = sys.argv[9] if len(sys.argv) > 9 else "myo"
+
 def run_job_outlet(oracle_url, oracle_user, oracle_password):
     """
     Main function to synchronize outlet master data from Oracle to PostgreSQL.
@@ -188,7 +191,7 @@ def run_job_outlet(oracle_url, oracle_user, oracle_password):
             # --- 4.2 Read from PostgreSQL Target ---
             logger.info("Reading outlet master data from PostgreSQL target table.")
             source_dist_id = df_orc_outlet.select("dist_id").distinct().collect()[0]["dist_id"]
-            full_sql_query = f"(SELECT * FROM myo.m_outlet WHERE dist_id = {source_dist_id}) AS filtered_outlet"
+            full_sql_query = f"(SELECT * FROM {PG_SCHEMA}.m_outlet WHERE dist_id = {source_dist_id}) AS filtered_outlet"
             df_pg_myo_outlet = spark.read.jdbc(url=MYO_JDBC_URL, table=full_sql_query, properties=MYO_DB_PROPERTIES)
             logger.info(f"Successfully read {df_pg_myo_outlet.count()} rows from PostgreSQL target.")
 
@@ -325,12 +328,12 @@ def process_partition(iterator):
         # 2. Loop through the rows in this partition
         for row in iterator:
             if row["operation_status"] == "INSERT":
-                cur.execute("""
-                    INSERT INTO myo.m_outlet(
                         dist_id, outlet_id, outlet_name, owner_name, channel_id, addr, longitude, latitude, 
                         barcode, group_payer_id, group_disc_id, group_outlet_id, group_harga_id, 
                         specific_outlet_id, created_on, created_by
                     ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                cur.execute(f"""
+                    INSERT INTO {PG_SCHEMA}.m_outlet(
                 """, (
                     row['dist_id'], row['outlet_id'], row['outlet_name'], row['owner_name'], row['channel_id'],
                     row['addr'], row['longitude'], row['latitude'], row['barcode'], row['group_payer_id'],
@@ -338,11 +341,11 @@ def process_partition(iterator):
                     row['specific_outlet_id'], row['created_on_final'], row['created_by_final']
                 ))
             else: # UPDATE
-                cur.execute("""
-                    UPDATE myo.m_outlet
                     SET outlet_name = %s, owner_name = %s, channel_id = %s, addr = %s, longitude = %s, 
                         latitude = %s, barcode = %s, group_payer_id = %s, group_disc_id = %s, 
                         group_outlet_id = %s, group_harga_id = %s, specific_outlet_id = %s, 
+                cur.execute(f"""
+                    UPDATE {PG_SCHEMA}.m_outlet
                         modified_on = %s, modified_by = %s
                     WHERE dist_id = %s AND outlet_id = %s
                 """, (

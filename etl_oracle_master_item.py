@@ -60,6 +60,9 @@ MYO_DB_PROPERTIES = {
     "driver": "org.postgresql.Driver"
 }
 
+# Optional 9th arg: source PostgreSQL schema. Defaults to "myo" when omitted.
+PG_SCHEMA = sys.argv[9] if len(sys.argv) > 9 else "myo"
+
 def run_job_sku_penjatahan(oracle_url, oracle_user, oracle_password):
     """
     Main function to synchronize master item data from PostgreSQL to Oracle.
@@ -94,7 +97,7 @@ def run_job_sku_penjatahan(oracle_url, oracle_user, oracle_password):
         try:
             # --- 4.1 Read from PostgreSQL Source ---
             logger.info("Reading master item data from PostgreSQL source.")
-            sql_query_master_item = """
+            sql_query_master_item = f"""
             (
             SELECT
                 msp.id::text item_id, mi.item_name,
@@ -104,8 +107,8 @@ def run_job_sku_penjatahan(oracle_url, oracle_user, oracle_password):
                 weight3 weight_netto, weight_bruto,
                 sellprice1, sellprice2, sellprice3,
                 '1' flag_active, subbrand_id matgr
-            FROM myo.m_sku_product msp
-            JOIN myo.m_item mi ON msp.id = mi.id
+            FROM {PG_SCHEMA}.m_sku_product msp
+            JOIN {PG_SCHEMA}.m_item mi ON msp.id = mi.id
             ) temp_m_item
             """
             df_pg_myo_master_item = spark.read.jdbc(

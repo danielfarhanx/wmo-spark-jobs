@@ -57,6 +57,9 @@ MYO_DB_PROPERTIES = {
     "driver": "org.postgresql.Driver"
 }
 
+# Optional 9th arg: target PostgreSQL schema. Defaults to "myo" when omitted.
+PG_SCHEMA = sys.argv[9] if len(sys.argv) > 9 else "myo"
+
 def run_job_sku_penjatahan(oracle_url, oracle_user, oracle_password):
     """
     Main function to synchronize SKU parameter data from Oracle to PostgreSQL.
@@ -138,7 +141,7 @@ def run_job_sku_penjatahan(oracle_url, oracle_user, oracle_password):
             logger.info("Reading SKU parameter data from PostgreSQL target table.")
             df_pg_myo_sku_penjatahan = spark.read.jdbc(
                 url=MYO_JDBC_URL,
-                table="myo.m_sku_parameter",
+                table=f"{PG_SCHEMA}.m_sku_parameter",
                 properties=MYO_DB_PROPERTIES
             )
             logger.info(f"Successfully read {df_pg_myo_sku_penjatahan.count()} rows from PostgreSQL target.")
@@ -202,8 +205,8 @@ def run_job_sku_penjatahan(oracle_url, oracle_user, oracle_password):
 
                 for row in df_joined.collect():
                     if row["operation_status"] == "INSERT":
-                        cur.execute("""
-                            INSERT INTO myo.m_sku_parameter(
+                        cur.execute(f"""
+                            INSERT INTO {PG_SCHEMA}.m_sku_parameter(
                                 dist_id, pcode_id, is_penjatahan, is_last_bite, created_on, created_by
                             ) VALUES (%s, %s, %s, %s, %s, %s)
                         """, (
@@ -212,8 +215,8 @@ def run_job_sku_penjatahan(oracle_url, oracle_user, oracle_password):
                         ))
                         insert_success += 1
                     elif row["operation_status"] == "UPDATE":
-                        cur.execute("""
-                            UPDATE myo.m_sku_parameter
+                        cur.execute(f"""
+                            UPDATE {PG_SCHEMA}.m_sku_parameter
                             SET is_penjatahan = %s, is_last_bite = %s, modified_on = %s, modified_by = %s
                             WHERE dist_id = %s and pcode_id = %s
                         """, (
@@ -222,8 +225,8 @@ def run_job_sku_penjatahan(oracle_url, oracle_user, oracle_password):
                         ))
                         update_success += 1
                     else: # DELETE
-                        cur.execute("""
-                            DELETE FROM myo.m_sku_parameter
+                        cur.execute(f"""
+                            DELETE FROM {PG_SCHEMA}.m_sku_parameter
                             WHERE dist_id = %s and pcode_id = %s
                         """, (row['dist_id'], row['pcode_id']))
                         delete_success += 1
