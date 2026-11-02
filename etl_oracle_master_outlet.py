@@ -328,12 +328,12 @@ def process_partition(iterator):
         # 2. Loop through the rows in this partition
         for row in iterator:
             if row["operation_status"] == "INSERT":
+                cur.execute(f"""
+                    INSERT INTO {PG_SCHEMA}.m_outlet(
                         dist_id, outlet_id, outlet_name, owner_name, channel_id, addr, longitude, latitude, 
                         barcode, group_payer_id, group_disc_id, group_outlet_id, group_harga_id, 
                         specific_outlet_id, created_on, created_by
                     ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                cur.execute(f"""
-                    INSERT INTO {PG_SCHEMA}.m_outlet(
                 """, (
                     row['dist_id'], row['outlet_id'], row['outlet_name'], row['owner_name'], row['channel_id'],
                     row['addr'], row['longitude'], row['latitude'], row['barcode'], row['group_payer_id'],
@@ -341,13 +341,13 @@ def process_partition(iterator):
                     row['specific_outlet_id'], row['created_on_final'], row['created_by_final']
                 ))
             else: # UPDATE
-                    SET outlet_name = %s, owner_name = %s, channel_id = %s, addr = %s, longitude = %s, 
-                        latitude = %s, barcode = %s, group_payer_id = %s, group_disc_id = %s, 
-                        group_outlet_id = %s, group_harga_id = %s, specific_outlet_id = %s, 
                 cur.execute(f"""
                     UPDATE {PG_SCHEMA}.m_outlet
                         modified_on = %s, modified_by = %s
                     WHERE dist_id = %s AND outlet_id = %s
+                    SET outlet_name = %s, owner_name = %s, channel_id = %s, addr = %s, longitude = %s, 
+                        latitude = %s, barcode = %s, group_payer_id = %s, group_disc_id = %s, 
+                        group_outlet_id = %s, group_harga_id = %s, specific_outlet_id = %s, 
                 """, (
                     row['outlet_name'], row['owner_name'], row['channel_id'], row['addr'], row['longitude'],
                     row['latitude'], row['barcode'], row['group_payer_id'], row['group_disc_id'],
